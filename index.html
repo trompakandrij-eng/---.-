@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Онлайн-дизасемблер — Курсова робота</title>
+    <!-- Cytoscape.js для візуалізації CFG -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+    <!-- dagre layout для ієрархічного розміщення CFG -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Header ──────────────────────────────────────── */
+        header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #58a6ff;
+        }
+        header .subtitle {
+            font-size: 12px;
+            color: #8b949e;
+        }
+        .file-info {
+            font-size: 13px;
+            color: #8b949e;
+            display: flex;
+            gap: 16px;
+        }
+        .file-info span { color: #58a6ff; }
+        .timing-info {
+            font-size: 12px;
+            color: #3fb950;
+        }
+
+        /* ── Upload Screen ───────────────────────────────── */
+        #upload-screen {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .upload-zone {
+            border: 2px dashed #30363d;
+            border-radius: 12px;
+            padding: 60px 80px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            max-width: 600px;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: #58a6ff;
+            background: rgba(88, 166, 255, 0.05);
+        }
+        .upload-zone h2 {
+            color: #c9d1d9;
+            font-size: 22px;
+            margin-bottom: 12px;
+        }
+        .upload-zone p {
+            color: #8b949e;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .upload-zone .formats {
+            font-size: 12px;
+            color: #6e7681;
+        }
+        .upload-btn {
+            background: #238636;
+            color: #fff;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-bottom: 16px;
+        }
+        .upload-btn:hover { background: #2ea043; }
+        
+        #file-input { display: none; }
+
+        .loading {
+            display: none;
+            color: #58a6ff;
+            font-size: 14px;
+            margin-top: 16px;
+        }
+        .loading.active { display: block; }
+        
+        .error-msg {
+            color: #f85149;
+            font-size: 14px;
+            margin-top: 12px;
+            display: none;
+        }
+        .error-msg.active { display: block; }
+
+        /* ── Analysis Screen ─────────────────────────────── */
+        #analysis-screen {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+        }
+        #analysis-screen.active { display: flex; }
+        
+        .toolbar {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 8px 16px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .toolbar button {
+            background: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .toolbar button:hover { background: #30363d; }
+        .toolbar button.active {
+            background: #1f6feb;
+            border-color: #1f6feb;
+            color: #fff;
+        }
+
+        .panels {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* ── ASM Panel ───────────────────────────────────── */
+        .asm-panel {
+            flex: 1;
+            overflow-y: auto;
+            border-right: 1px solid #30363d;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .asm-panel table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .asm-panel tr {
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .asm-panel tr:hover { background: #161b22; }
+        .asm-panel tr.highlighted { background: #1c2128; }
+        .asm-panel tr.block-start { border-top: 1px solid #30363d; }
+        
+        .asm-panel td {
+            padding: 1px 8px;
+            white-space: nowrap;
+            vertical-align: top;
+        }
+        .addr { color: #8b949e; user-select: none; }
+        .bytes-col { color: #6e7681; font-size: 12px; }
+        .mnemonic { color: #79c0ff; font-weight: 600; }
+        .mnemonic.jump { color: #d29922; }
+        .mnemonic.call { color: #3fb950; }
+        .mnemonic.ret { color: #f85149; }
+        .operands { color: #c9d1d9; }
+        .func-label {
+            color: #d2a8ff;
+            font-weight: 600;
+            padding: 4px 8px;
+            display: block;
+            background: #1c2128;
+            border-top: 1px solid #30363d;
+        }
+
+        /* ── CFG Panel ───────────────────────────────────── */
+        .cfg-panel {
+            flex: 1;
+            position: relative;
+            background: #0d1117;
+        }
+        #cfg-container {
+            width: 100%;
+            height: 100%;
+        }
+        .cfg-info {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            font-size: 11px;
+            color: #6e7681;
+            background: rgba(13, 17, 23, 0.8);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        /* ── Stats bar ───────────────────────────────────── */
+        .stats-bar {
+            background: #161b22;
+            border-top: 1px solid #30363d;
+            padding: 6px 16px;
+            font-size: 12px;
+            color: #8b949e;
+            display: flex;
+            gap: 24px;
+            flex-shrink: 0;
+        }
+        .stats-bar .stat-val { color: #58a6ff; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>🔬 Онлайн-дизасемблер</h1>
+        <div class="subtitle">Курсова робота — Тромпак А. Ю., ПМК-31</div>
+    </div>
+    <div id="header-info" style="display:none">
+        <div class="file-info" id="file-info-bar"></div>
+        <div class="timing-info" id="timing-bar"></div>
+    </div>
+</header>
+
+<!-- ── Upload Screen ──────────────────────────────────────── -->
+<div id="upload-screen">
+    <div class="upload-zone" id="drop-zone">
+        <h2>Завантажте ELF-файл</h2>
+        <p>Перетягніть файл сюди або натисніть кнопку</p>
+        <button class="upload-btn" onclick="document.getElementById('file-input').click()">
+            Обрати файл
+        </button>
+        <input type="file" id="file-input" accept=".elf,.bin,.so,.out,*">
+        <div class="formats">Підтримувані формати: ELF (Linux) · Максимум 10 МБ</div>
+        <div class="loading" id="loading">⏳ Аналіз файлу...</div>
+        <div class="error-msg" id="error-msg"></div>
+    </div>
+</div>
+
+<!-- ── Analysis Screen ────────────────────────────────────── -->
+<div id="analysis-screen">
+    <div class="toolbar">
+        <button id="btn-asm" class="active" onclick="showPanel('asm')">📄 Асемблер</button>
+        <button id="btn-cfg" onclick="showPanel('cfg')">🔀 CFG</button>
+        <button id="btn-both" onclick="showPanel('both')">📄🔀 Обидва</button>
+        <span style="flex:1"></span>
+        <button onclick="exportJSON()">💾 Експорт JSON</button>
+        <button onclick="exportText()">📝 Експорт текст</button>
+        <button onclick="resetApp()">🔄 Новий файл</button>
+    </div>
+    
+    <div class="panels">
+        <div class="asm-panel" id="asm-panel">
+            <table id="asm-table"><tbody></tbody></table>
+        </div>
+        <div class="cfg-panel" id="cfg-panel">
+            <div id="cfg-container"></div>
+            <div class="cfg-info">Колесо миші — масштаб · Перетягування — переміщення · Клік на вузол — перехід до коду</div>
+        </div>
+    </div>
+    
+    <div class="stats-bar" id="stats-bar"></div>
+</div>
+
+<script>
+// ── Стан застосунку ──────────────────────────────────────────────────────────
+let currentSession = null;
+let currentInstructions = [];
+let cy = null; // Cytoscape instance
+
+// ── Завантаження файлу ───────────────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const loading = document.getElementById('loading');
+const errorMsg = document.getElementById('error-msg');
+
+// Drag-and-drop
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+});
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) {
+        uploadFile(e.dataTransfer.files[0]);
+    }
+});
+
+// Кнопка вибору файлу
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+        uploadFile(fileInput.files[0]);
+    }
+});
+
+async function uploadFile(file) {
+    loading.classList.add('active');
+    errorMsg.classList.remove('active');
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+        const resp = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+        });
+        
+        const data = await resp.json();
+        
+        if (!resp.ok) {
+            throw new Error(data.detail || 'Помилка сервера');
+        }
+        
+        currentSession = data;
+        await loadAnalysis(data.session_id);
+        
+    } catch (err) {
+        errorMsg.textContent = '❌ ' + err.message;
+        errorMsg.classList.add('active');
+    } finally {
+        loading.classList.remove('active');
+    }
+}
+
+// ── Завантаження результатів аналізу ─────────────────────────────────────────
+async function loadAnalysis(sessionId) {
+    // Завантажити дизасемблювання
+    const asmResp = await fetch(`/api/disassemble/${sessionId}`);
+    const asmData = await asmResp.json();
+    currentInstructions = asmData.instructions;
+    
+    // Завантажити CFG
+    const cfgResp = await fetch(`/api/cfg/${sessionId}`);
+    const cfgData = await cfgResp.json();
+    
+    // Показати інтерфейс аналізу
+    document.getElementById('upload-screen').style.display = 'none';
+    document.getElementById('analysis-screen').classList.add('active');
+    document.getElementById('header-info').style.display = 'block';
+    
+    // Заповнити інформацію у header
+    document.getElementById('file-info-bar').innerHTML = `
+        <div>Файл: <span>${currentSession.filename}</span></div>
+        <div>Формат: <span>${currentSession.format}</span></div>
+        <div>Архітектура: <span>${currentSession.architecture}</span></div>
+        <div>Entry: <span>${currentSession.entry_point}</span></div>
+    `;
+    
+    const t = currentSession.timing;
+    document.getElementById('timing-bar').textContent = 
+        `Парсинг: ${t.parse_ms}мс · Дизасемблер: ${t.disasm_ms}мс · CFG: ${t.cfg_ms}мс · Загалом: ${t.total_ms}мс`;
+    
+    // Статистика
+    const s = currentSession.stats;
+    document.getElementById('stats-bar').innerHTML = `
+        <div>Інструкцій: <span class="stat-val">${s.total_instructions.toLocaleString()}</span></div>
+        <div>Базових блоків: <span class="stat-val">${s.cfg_nodes}</span></div>
+        <div>Ребер CFG: <span class="stat-val">${s.cfg_edges}</span></div>
+        <div>Розмір .text: <span class="stat-val">${(s.text_section_size / 1024).toFixed(1)} КБ</span></div>
+    `;
+    
+    // Рендер таблиці асемблера
+    renderAsm(currentInstructions);
+    
+    // Рендер CFG
+    renderCFG(cfgData.cfg);
+    
+    // За замовчуванням показати обидві панелі
+    showPanel('both');
+}
+
+// ── Рендер асемблерного коду ─────────────────────────────────────────────────
+function renderAsm(instructions) {
+    const tbody = document.querySelector('#asm-table tbody');
+    tbody.innerHTML = '';
+    
+    // Знайти адреси символів для міток
+    const symbolMap = {};
+    if (currentSession && currentSession.sections) {
+        // Використовувати символи, якщо є
+    }
+    
+    // Визначити адреси початку блоків для візуального розділення
+    const blockStarts = new Set();
+    instructions.forEach(insn => {
+        if (insn.type === 'jump' && insn.target) {
+            blockStarts.add(insn.target);
+        }
+    });
+    
+    for (const insn of instructions) {
+        const tr = document.createElement('tr');
+        tr.dataset.addr = insn.address;
+        
+        if (blockStarts.has(insn.address)) {
+            tr.classList.add('block-start');
+        }
+        
+        // Визначити CSS-клас для мнемоніки
+        let mnClass = 'mnemonic';
+        if (insn.type === 'jump') mnClass += ' jump';
+        else if (insn.type === 'call') mnClass += ' call';
+        else if (insn.type === 'ret') mnClass += ' ret';
+        
+        // Форматувати байти (макс 12 байтів для відображення)
+        const bytesStr = insn.bytes.length > 24 
+            ? insn.bytes.substring(0, 24) + '...' 
+            : insn.bytes;
+        const formattedBytes = bytesStr.match(/.{1,2}/g)?.join(' ') || '';
+        
+        tr.innerHTML = `
+            <td class="addr">${insn.address.toString(16).padStart(8, '0')}</td>
+            <td class="bytes-col">${formattedBytes}</td>
+            <td class="${mnClass}">${insn.mnemonic}</td>
+            <td class="operands">${escapeHtml(insn.op_str)}</td>
+        `;
+        
+        // Клік на рядок — підсвітити відповідний вузол CFG
+        tr.addEventListener('click', () => {
+            // Зняти попереднє виділення
+            document.querySelectorAll('#asm-table tr.highlighted').forEach(r => r.classList.remove('highlighted'));
+            tr.classList.add('highlighted');
+            
+            // Підсвітити вузол у CFG
+            if (cy) {
+                cy.elements().removeClass('selected');
+                const node = cy.nodes().filter(n => {
+                    const d = n.data();
+                    return insn.address >= d.start_addr && insn.address <= d.end_addr;
+                });
+                if (node.length > 0) {
+                    node.addClass('selected');
+                    cy.animate({ center: { eles: node }, duration: 300 });
+                }
+            }
+        });
+        
+        tbody.appendChild(tr);
+    }
+}
+
+// ── Рендер CFG через Cytoscape.js ────────────────────────────────────────────
+function renderCFG(cfgData) {
+    cy = cytoscape({
+        container: document.getElementById('cfg-container'),
+        elements: [...cfgData.nodes, ...cfgData.edges],
+        
+        style: [
+            {
+                selector: 'node',
+                style: {
+                    'label': 'data(label)',
+                    'text-valign': 'center',
+                    'text-halign': 'center',
+                    'background-color': '#21262d',
+                    'border-color': '#58a6ff',
+                    'border-width': 1,
+                    'color': '#c9d1d9',
+                    'font-size': '10px',
+                    'font-family': 'Consolas, monospace',
+                    'text-wrap': 'wrap',
+                    'shape': 'roundrectangle',
+                    'width': 'label',
+                    'height': 'label',
+                    'padding': '10px',
+                }
+            },
+            {
+                selector: 'node.selected',
+                style: {
+                    'background-color': '#1f6feb',
+                    'border-color': '#58a6ff',
+                    'border-width': 2,
+                }
+            },
+            {
+                selector: 'edge',
+                style: {
+                    'width': 2,
+                    'line-color': '#484f58',
+                    'target-arrow-color': '#484f58',
+                    'target-arrow-shape': 'triangle',
+                    'curve-style': 'bezier',
+                    'arrow-scale': 0.8,
+                }
+            },
+            {
+                selector: 'edge[type="conditional_true"]',
+                style: {
+                    'line-color': '#3fb950',
+                    'target-arrow-color': '#3fb950',
+                    'label': 'T',
+                    'font-size': '9px',
+                    'color': '#3fb950',
+                }
+            },
+            {
+                selector: 'edge[type="conditional_false"]',
+                style: {
+                    'line-color': '#f85149',
+                    'target-arrow-color': '#f85149',
+                    'line-style': 'dashed',
+                    'label': 'F',
+                    'font-size': '9px',
+                    'color': '#f85149',
+                }
+            },
+            {
+                selector: 'edge[type="unconditional"]',
+                style: {
+                    'line-color': '#d29922',
+                    'target-arrow-color': '#d29922',
+                }
+            },
+        ],
+        
+        layout: {
+            name: 'dagre',
+            rankDir: 'TB',
+            nodeSep: 40,
+            rankSep: 60,
+            edgeSep: 20,
+        },
+        
+        minZoom: 0.1,
+        maxZoom: 3,
+    });
+    
+    // Клік на вузол CFG → прокрутити до відповідного коду
+    cy.on('tap', 'node', function(evt) {
+        const nodeData = evt.target.data();
+        const addr = nodeData.start_addr;
+        
+        // Знайти рядок у таблиці
+        const row = document.querySelector(`#asm-table tr[data-addr="${addr}"]`);
+        if (row) {
+            document.querySelectorAll('#asm-table tr.highlighted').forEach(r => r.classList.remove('highlighted'));
+            row.classList.add('highlighted');
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
+        // Підсвітити вузол
+        cy.elements().removeClass('selected');
+        evt.target.addClass('selected');
+    });
+}
+
+// ── Перемикання панелей ──────────────────────────────────────────────────────
+function showPanel(mode) {
+    const asmPanel = document.getElementById('asm-panel');
+    const cfgPanel = document.getElementById('cfg-panel');
+    
+    document.querySelectorAll('.toolbar button').forEach(b => b.classList.remove('active'));
+    
+    if (mode === 'asm') {
+        asmPanel.style.display = 'block';
+        asmPanel.style.flex = '1';
+        cfgPanel.style.display = 'none';
+        document.getElementById('btn-asm').classList.add('active');
+    } else if (mode === 'cfg') {
+        asmPanel.style.display = 'none';
+        cfgPanel.style.display = 'block';
+        cfgPanel.style.flex = '1';
+        document.getElementById('btn-cfg').classList.add('active');
+        if (cy) {
+            setTimeout(() => {
+                cy.resize();
+                cy.fit(null, 30);
+                cy.center();
+            }, 100);
+        }
+    } else {
+        asmPanel.style.display = 'block';
+        asmPanel.style.flex = '1';
+        cfgPanel.style.display = 'block';
+        cfgPanel.style.flex = '1';
+        document.getElementById('btn-both').classList.add('active');
+        if (cy) {
+            setTimeout(() => {
+                cy.resize();
+                cy.fit(null, 30);
+                cy.center();
+            }, 100);
+        }
+    }
+}
+
+// ── Експорт ──────────────────────────────────────────────────────────────────
+async function exportJSON() {
+    if (!currentSession) return;
+    const resp = await fetch(`/api/export/${currentSession.session_id}?format=json`);
+    const data = await resp.json();
+    downloadFile(JSON.stringify(data, null, 2), `${currentSession.filename}_analysis.json`, 'application/json');
+}
+
+async function exportText() {
+    if (!currentSession) return;
+    const resp = await fetch(`/api/export/${currentSession.session_id}?format=text`);
+    const data = await resp.json();
+    downloadFile(data.text, `${currentSession.filename}_disasm.txt`, 'text/plain');
+}
+
+function downloadFile(content, filename, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ── Скинути до початкового стану ─────────────────────────────────────────────
+function resetApp() {
+    currentSession = null;
+    currentInstructions = [];
+    if (cy) { cy.destroy(); cy = null; }
+    
+    document.getElementById('upload-screen').style.display = 'flex';
+    document.getElementById('analysis-screen').classList.remove('active');
+    document.getElementById('header-info').style.display = 'none';
+    document.querySelector('#asm-table tbody').innerHTML = '';
+    document.getElementById('file-input').value = '';
+    errorMsg.classList.remove('active');
+}
+
+// ── Утиліти ──────────────────────────────────────────────────────────────────
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+</script>
+
+</body>
+</html>
