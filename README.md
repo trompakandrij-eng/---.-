@@ -34,8 +34,8 @@
 
 ## Структура проєкту#
 D:\disasm\
-  ├── main.py          ← перший файл
-  ├── test_program     ← третій файл (для тестування)
-  └── static\          ← створи цю папку вручну!
-      └── index.html   ← другий файл (покласти всередину static)
+  ├── main.py          
+  ├── test_program     
+  └── static\          
+      └── index.html  
 ---.-
