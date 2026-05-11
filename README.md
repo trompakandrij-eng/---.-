@@ -36,7 +36,7 @@
 ### Крок 1: Клонування репозиторію
 
 ```bash
-https://github.com/trompakandrij-eng/---.-/edit/main/README.md
+https://github.com/trompakandrij-eng/online-disassembler
 ```
 
 ### Крок 2: Встановлення залежностей
